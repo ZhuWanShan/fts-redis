@@ -20,6 +20,54 @@ fts.push xxx time_t value samples max|min|incr|refr\n\
     return REDISMODULE_OK;
 }
 
+int FTS_CreateCmd(RedisModuleCtx *ctx, RedisModuleString** argv, int argc){
+     
+    RedisModule_AutoMemory(ctx);
+
+    if(argc != 5){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,
+            argv[1],
+            REDISMODULE_READ|REDISMODULE_WRITE);
+
+    int keyType = RedisModule_KeyType(key);
+
+    if(keyType != REDISMODULE_KEYTYPE_EMPTY){
+        return RedisModule_ReplyWithLongLong(ctx, 0);
+    }
+    
+    long long duration, max;
+    
+    if(RedisModule_StringToLongLong(argv[3], &duration)
+            || RedisModule_StringToLongLong(argv[4], &max)){
+        return RedisModule_ReplyWithError(ctx, "Wrong value in commands");
+    }
+
+    short t = STS_AGG_RFER;
+    
+    if(RedisModule_StringCompare(
+                    argv[2],
+                    RedisModule_CreateStringPrintf(ctx, "%s", "inc")) == 0){
+        t = STS_AGG_INRC;
+    }else if(RedisModule_StringCompare(
+                argv[2],
+                RedisModule_CreateStringPrintf(ctx, "%s", "max")) == 0){
+        t = STS_AGG_MAX;
+    }else if(RedisModule_StringCompare(
+                argv[2],
+                RedisModule_CreateStringPrintf(ctx, "%s", "min")) == 0){
+        t = STS_AGG_MIN;
+    }
+    
+    Series* ss = createSeries(t, (size_t)duration, (size_t)max);
+    RedisModule_ModuleTypeSetValue(key, SeriesType, ss);
+    RedisModule_ReplyWithLongLong(ctx, 1);
+
+    return REDISMODULE_OK;
+}
+
 int FTS_PushCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     RedisModule_AutoMemory(ctx);
 
@@ -33,14 +81,11 @@ int FTS_PushCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
 
     int keyType = RedisModule_KeyType(key);
 
-    Series* ss;
-
     if(keyType == REDISMODULE_KEYTYPE_EMPTY){
-        ss = createSeries(STS_AGG_INRC, 60, 1440);
-        RedisModule_ModuleTypeSetValue(key, SeriesType, ss);
-    }else{
-        ss = RedisModule_ModuleTypeGetValue(key);
+        return RedisModule_ReplyWithError(ctx, "EMPTY_KEY");
     }
+    
+    Series* ss = RedisModule_ModuleTypeGetValue(key);
 
     if(RedisModule_ModuleTypeGetType(key) != SeriesType){
         return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
@@ -225,6 +270,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     SeriesType = RedisModule_CreateDataType(ctx, "ftsSeries", 0, &tm);
     if (SeriesType == NULL) return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"fts.create",
+        FTS_CreateCmd, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fts.push",
         FTS_PushCmd, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR)
