@@ -1,0 +1,8 @@
+*.o
+*.a
+*.so
+*.xo
+*.db
+.vscode
+dist/
+    
